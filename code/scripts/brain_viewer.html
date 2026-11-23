@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Brain volume viewer</title>
+<style>
+html { height:100%; }
+body { min-height:100%; margin:0; background:#0b1220; color:#dbe7f5; font:14px system-ui; }
+nav { padding:12px; display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+input[type="number"] { width:75px; padding:6px; background:#17243a; color:white; border:1px solid #415674; border-radius:5px; }
+select,button { padding:6px; background:#17243a; color:white; border:1px solid #415674; border-radius:5px; }
+details { border-top:1px solid #26354b; }
+summary { padding:10px 12px; cursor:pointer; color:#a9c2df; }
+#viewer:fullscreen { width:100vw; height:100vh; display:flex; flex-direction:column; background:#0b1220; }
+#viewer:fullscreen #frame { flex:1; height:auto; min-height:0; }
+#viewer:fullscreen nav, #viewer:fullscreen details, #viewer:fullscreen #status { flex-shrink:0; }
+#frame { height:570px; position:relative; display:flex; gap:8px; }
+.viewport { flex:1; min-width:0; display:flex; flex-direction:column; }
+.volume-title { padding:8px; text-align:center; color:#dbe7f5; font-weight:600; }
+.canvas-wrap { flex:1; min-height:0; position:relative; }
+canvas { width:100%; height:100%; display:block; }
+[hidden] { display:none !important; }
+#status { padding:8px 12px; }
+</style></head>
+<body>
+<main id="viewer">
+<nav>
+<label>Layout <select id="layout"><option value="3">Linked slices + 3D</option><option value="4">3D volume</option><option value="0">Axial</option><option value="1">Coronal</option><option value="2">Sagittal</option></select></label>
+<label><input type="checkbox" id="crosshair" checked> Crosshairs</label>
+<button id="reset">Center crosshair</button>
+<button id="fullscreen" type="button">Full screen</button>
+</nav>
+<details>
+<summary>Display settings</summary>
+<nav aria-label="Display contrast controls">
+<label>Window min <input id="minimum" type="number" step="0.05"></label>
+<label>Window max <input id="maximum" type="number" step="0.05"></label>
+<label>Gamma <input id="gamma" type="range" min="0.3" max="2" step="0.05" value="0.85"></label>
+<button id="auto">Auto brain contrast</button>
+<button id="standard">Standard window</button>
+<span id="windowStatus"></span>
+</nav>
+</details>
+<div id="frame">
+<section id="referencePanel" class="viewport" hidden>
+<div class="volume-title">Real validation MRI</div>
+<div class="canvas-wrap"><canvas id="reference" aria-label="Real validation MRI"></canvas></div>
+</section>
+<section class="viewport">
+<div id="generatedTitle" class="volume-title" hidden>Generated MRI</div>
+<div class="canvas-wrap"><canvas id="brain" aria-label="Interactive brain slices and 3D rendering"></canvas></div>
+</section>
+</div>
+<div id="status">Loading viewer…</div>
+</main>
+<script type="module">
+const status = document.getElementById('status');
+const viewer = document.getElementById('viewer');
+const fullscreen = document.getElementById('fullscreen');
+fullscreen.onclick = async () => {
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else {
+      await viewer.requestFullscreen();
+    }
+  } catch (error) {
+    status.textContent = 'Full screen is unavailable in this browser: ' + error.message;
+  }
+};
+document.addEventListener('fullscreenchange', () => {
+  fullscreen.textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen';
+  // NiiVue observes window resize to resize its WebGL drawing buffer.
+  window.dispatchEvent(new Event('resize'));
+});
+try {
+  const {Niivue, NVImage} = await import('https://cdn.jsdelivr.net/npm/@niivue/niivue@0.67.0/+esm');
+  const nv = new Niivue({backColor:[0.043,0.071,0.125,1], crosshairColor:[0.2,0.85,0.95,1], show3Dcrosshair:true, isRadiologicalConvention:false});
+  await nv.attachTo('brain');
+  const image = await NVImage.loadFromBase64({base64:'__VOLUME_BASE64__', name:'brain.nii.gz'});
+  const viewers = [nv];
+  const images = [image];
+  const referenceBase64 = '__REFERENCE_BASE64__';
+  if (!referenceBase64.startsWith('__')) {
+    document.getElementById('referencePanel').hidden = false;
+    document.getElementById('generatedTitle').hidden = false;
+    const realViewer = new Niivue({backColor:[0.043,0.071,0.125,1], crosshairColor:[0.2,0.85,0.95,1], show3Dcrosshair:true, isRadiologicalConvention:false});
+    await realViewer.attachTo('reference');
+    const realImage = await NVImage.loadFromBase64({base64:referenceBase64, name:'real.nii.gz'});
+    viewers.push(realViewer);
+    images.push(realImage);
+  }
+  const windowImage = images[images.length - 1];
+  // Exclude near-zero background and outliers from the initial display window.
+  const sample = [];
+  const slope = windowImage.hdr.scl_slope || 1;
+  const intercept = windowImage.hdr.scl_inter || 0;
+  const stride = Math.max(1, Math.floor(windowImage.img.length / 200000));
+  for (let i = 0; i < windowImage.img.length; i += stride) {
+    const value = windowImage.img[i] * slope + intercept;
+    if (Number.isFinite(value) && value > 0) sample.push(value);
+  }
+  sample.sort((a, b) => a - b);
+  const quantile = (values, q) => values[Math.floor((values.length - 1) * q)];
+  const cutoff = sample.length ? quantile(sample, 0.99) * 0.05 : 0;
+  const foreground = sample.filter(value => value > cutoff);
+  const autoMin = foreground.length ? quantile(foreground, 0.02) : 0;
+  const autoMax = foreground.length ? Math.max(quantile(foreground, 0.98), autoMin + 0.01) : 1;
+  viewers.forEach((viewer, index) => {
+    images[index].cal_min = autoMin;
+    images[index].cal_max = autoMax;
+    viewer.addVolume(images[index]);
+  });
+  const minimum = document.getElementById('minimum');
+  const maximum = document.getElementById('maximum');
+  const gamma = document.getElementById('gamma');
+  const syncWindow = () => {
+    minimum.value = Number(image.cal_min.toFixed(3));
+    maximum.value = Number(image.cal_max.toFixed(3));
+  };
+  const applyWindow = (low, high) => {
+    if (!Number.isFinite(low) || !Number.isFinite(high) || low >= high) {
+      document.getElementById('windowStatus').textContent = 'Maximum must exceed minimum';
+      return;
+    }
+    viewers.forEach((viewer, index) => {
+      if (images[index].cal_min !== low || images[index].cal_max !== high) {
+        images[index].cal_min = low;
+        images[index].cal_max = high;
+        viewer.updateGLVolume();
+      }
+    });
+    syncWindow();
+    document.getElementById('windowStatus').textContent = 'Display only · voxel values unchanged';
+  };
+  minimum.onchange = maximum.onchange = () => applyWindow(Number(minimum.value), Number(maximum.value));
+  gamma.oninput = () => viewers.forEach(viewer => viewer.setGamma(Number(gamma.value)));
+  document.getElementById('auto').onclick = () => applyWindow(autoMin, autoMax);
+  document.getElementById('standard').onclick = () => applyWindow(-0.1, 2.5);
+  viewers.forEach((viewer, index) => {
+    viewer.onIntensityChange = () => applyWindow(images[index].cal_min, images[index].cal_max);
+    viewer.setGamma(Number(gamma.value));
+  });
+  syncWindow();
+  viewers.forEach(viewer => {
+    viewer.setSliceType(3);
+    viewer.opts.multiplanarShowRender = 1;
+    viewer.drawScene();
+  });
+  document.getElementById('layout').onchange = e => viewers.forEach(viewer => viewer.setSliceType(Number(e.target.value)));
+  document.getElementById('crosshair').onchange = e => viewers.forEach(viewer => viewer.setCrosshairWidth(e.target.checked ? 1 : 0));
+  document.getElementById('reset').onclick = () => viewers.forEach(viewer => { viewer.scene.crosshairPos = [0.5,0.5,0.5]; viewer.drawScene(); });
+  status.textContent = 'Neurological convention · RAS geometry · Click slices to position crosshairs';
+} catch (error) {
+  status.textContent = 'Viewer could not load: ' + error.message + '. Check WebGL2 and internet access. NIfTI downloads remain available.';
+}
+</script></body></html>

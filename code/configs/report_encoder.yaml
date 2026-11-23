@@ -1,0 +1,7 @@
+# Frozen report encoder used by generation caches.
+biomedclip_directory: checkpoints/BiomedCLIP
+biomedclip_revision: 9f341de24bfb00180f1b847274256e9b65a3a32e
+biomedbert_directory: checkpoints/BiomedBERT
+biomedbert_revision: d673b8835373c6fa116d6d8006b33d48734e305d
+device: cuda
+text_batch_size: 8

@@ -1,0 +1,125 @@
+architecture: parallel_voxel_flow_v2_3
+dataset_root: data/mr_rate_t1
+source_manifest: cache/voxel_flow_inputs/manifest.csv
+manifest: cache/voxel_cache/manifest.csv
+voxel_cache_root: cache/voxel_cache
+voxel_cache_format: packed_nonzero_float32_v1
+voxel_normalization: positive_brain_median
+report_token_cache: runs/reports/report_token_cache
+exploratory_pending_review: true
+run_dir: runs/voxel_flow_v2_3_5000_seed42/training
+native_shape:
+- 240
+- 240
+- 168
+z_padding:
+- 4
+- 4
+local_pack_factor: 4
+local_width: 96
+global_width: 384
+stages: 4
+blocks_per_stage: 2
+global_heads: 6
+global_rope_axis_dims:
+- 20
+- 20
+- 24
+rope_base: 10000.0
+rope_coordinate_scale_mm: 16.0
+absolute_coordinate_scale_mm: 100.0
+local_heads: 4
+local_expansion: 2
+global_ff_hidden: 1024
+global_decoder_channels:
+- 128
+- 48
+- 16
+- 1
+# Half-resolution feature width and native correction CNN hidden width.
+local_decoder_channels:
+- 32
+- 4
+condition_width: 384
+time_embedding_width: 256
+time_mlp_hidden: 1536
+time_frequency_base: 10000.0
+time_scale: 1000.0
+spacing_mlp_hidden: 128
+rms_epsilon: 1.0e-06
+attention_dropout: 0.0
+report_semantic_dropout: 0.1
+contrast_conditioning: true
+structure_feedback: true
+bridge_query_chunk_size: 8192
+report_query_chunk_size: 8192
+activation_checkpointing: true
+compile_cnn_blocks: true
+mixed_precision: bf16
+prediction_type: clean
+flow_schedule: linear
+source_noise_std: 1.0
+timestep_sampling: uniform
+loss_type: voxel_velocity_contrast
+training_denominator_floor: 0.05
+contrast_offsets:
+- 1
+- 2
+- 4
+contrast_loss_weight: 1.0
+global_auxiliary_weight: 0.1
+device: cuda
+world_size: 2
+seed: 42
+# Per GPU. Effective optimizer batch = 16 * 2 GPUs = 32.
+batch_size: 16
+gradient_accumulation_steps: 1
+validation_batch_size: 16
+num_workers: 4
+prefetch_factor: 2
+persistent_workers: true
+pin_memory: true
+preload_cache: false
+cudnn_benchmark: true
+epochs: 200
+max_updates: null
+learning_rate: 0.0001
+weight_decay: 0.01
+adam_betas:
+- 0.9
+- 0.999
+gradient_clip_norm: 10.0
+log_gradient_diagnostics: true
+ema_decay: 0.995
+checkpoint_every_updates: 100
+checkpoint_epochs:
+- 10
+- 25
+- 50
+- 100
+- 150
+- 200
+validation_every_epochs: 1
+preview_every_epochs: 1
+evaluation_every_epochs: 1
+sampler: heun_last_euler
+sampling_steps: 16
+guidance_scale: 1.0
+evaluation_weights: ema
+evaluation_split: validation
+evaluation_samples: 2
+evaluation_seed: 42
+diversity_reports: 2
+diversity_samples_per_report: 2
+near_zero_thresholds:
+- 0.01
+- 0.05
+# Data, caches, and runs live in phase_1/, one level above this code folder.
+workspace_root: ..
+cohort_selection:
+  source_manifest: runs/reports/report_inputs.csv
+  method: pandas sample without replacement within the existing splits
+  train_scans: 4500
+  validation_scans: 500
+  train_selection_seed: 42
+  validation_selection_seed: 43

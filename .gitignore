@@ -1,0 +1,7 @@
+# Runtime outputs. Every run rebuilds these from the source dataset.
+.venv/
+data/
+cache/
+runs/
+checkpoints/
+__pycache__/
